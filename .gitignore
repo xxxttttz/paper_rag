@@ -1,0 +1,8 @@
+.env
+.venv/
+.venv-linux/
+__pycache__/
+*.py[cod]
+data/
+streamlit.out.log
+streamlit.err.log
