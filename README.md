@@ -7,9 +7,13 @@
 - 批量上传 PDF 论文并提取逐页文本
 - 按 Token 滑动窗口切分论文内容
 - 使用 `text-embedding-v4` 生成文本向量
+- 使用 `qwen3-vl-embedding` 建立论文图片的跨模态索引
+- 无法直接抽取矢量图表时，将对应 PDF 页面渲染为图片作为兜底
 - 使用 Milvus Lite 保存并检索论文片段
 - 支持向量检索与 BM25 混合检索
+- 使用 `qwen3-rerank` 对粗筛候选进行可选精排
 - 使用 `qwen-plus` 生成带页码引用的回答
+- 用户明确询问图表或图片时，使用 `qwen3-vl-flash` 分析视觉信息
 - 支持多会话、新建会话和删除会话
 - 使用 SQLite 持久保存问题、回答及引用片段
 - 根据最近对话改写追问，支持“它”“这个方法”等上下文指代
@@ -40,6 +44,8 @@ paper_rag/
 ├── config.py           # 模型、路径和检索参数
 ├── database.py         # SQLite 会话历史存储
 ├── generator.py        # 追问改写与答案生成
+├── image_ingest.py     # PDF 图片抽取、向量化和入库
+├── image_retriever.py  # 文本到图片的跨模态检索
 ├── ingest.py           # PDF 解析、分块、向量化和入库
 ├── retriever.py        # Milvus + BM25 混合检索
 ├── env.example         # 环境变量示例
@@ -103,8 +109,12 @@ OPENAI_API_KEY=sk-你的百炼APIKey
 OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 
 CHAT_MODEL=qwen-plus
+VISION_MODEL=qwen3-vl-flash
 EMBEDDING_MODEL=text-embedding-v4
 EMBEDDING_DIM=1024
+IMAGE_EMBEDDING_MODEL=qwen3-vl-embedding
+IMAGE_EMBEDDING_DIM=1024
+IMAGE_TOP_K=2
 ```
 
 如果百炼控制台提供了包含 Workspace ID 的专属兼容地址，应使用控制台给出的地址替换 `OPENAI_BASE_URL`。
@@ -137,7 +147,7 @@ hostname -I
 
 1. 在左侧上传一篇或多篇 PDF。
 2. 点击“重新构建知识库索引”。
-3. 等待 PDF 解析、向量生成和 Milvus 写入完成。
+3. 等待文本解析、图片抽取、向量生成和 Milvus 写入完成。
 4. 在页面底部输入论文相关问题。
 
 每次重新构建都会替换现有 Milvus collection。聊天历史不会因此删除，但旧回答保存的是当时引用片段的文本快照。
@@ -155,6 +165,7 @@ SQLite 中包含：
 - `conversations`：会话标题与时间
 - `messages`：用户和助手消息
 - `citations`：回答对应的论文、页码、分数和文本快照
+- `image_citations`：回答对应的图片路径、论文、页码和分数
 
 默认向模型发送最近 6 条消息（约 3 轮问答）。可以在 `config.py` 中调整：
 
@@ -174,6 +185,8 @@ MAX_HISTORY_MESSAGES = 6
 - Python 缓存和虚拟环境
 
 需要注意：构建索引时，论文分块会发送到百炼 embedding 接口；回答问题时，检索到的论文片段会发送到百炼对话接口。请勿上传或处理不允许发送给外部模型服务的敏感文档。
+
+启用图片索引后，抽取出的论文图片会发送到百炼多模态 embedding 接口；图片被检索命中时，还会发送给视觉模型用于生成回答。
 
 ## 常见问题
 
@@ -215,12 +228,18 @@ streamlit run app.py
 | 项目 | 默认值 |
 |---|---|
 | 对话模型 | `qwen-plus` |
+| 视觉模型 | `qwen3-vl-flash` |
 | Embedding 模型 | `text-embedding-v4` |
 | 向量维度 | `1024` |
+| 图片 Embedding 模型 | `qwen3-vl-embedding` |
+| 图片向量维度 | `1024` |
+| 图片检索数量 | `2` |
 | 文本块大小 | `400 tokens` |
 | 重叠大小 | `80 tokens` |
 | 检索数量 | `5` |
 | 向量检索权重 | `0.7` |
+| Rerank 模型 | `qwen3-rerank` |
+| Rerank 候选数量 | `20` |
 | 历史上下文 | 最近 `6` 条消息 |
 
 ## License

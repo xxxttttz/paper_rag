@@ -64,11 +64,26 @@ def init_database() -> None:
                     ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS image_citations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id TEXT NOT NULL,
+                image_path TEXT NOT NULL,
+                source TEXT NOT NULL,
+                page INTEGER NOT NULL,
+                score REAL,
+                FOREIGN KEY (message_id)
+                    REFERENCES messages(id)
+                    ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_messages_conversation
                 ON messages(conversation_id, created_at);
 
             CREATE INDEX IF NOT EXISTS idx_citations_message
                 ON citations(message_id);
+
+            CREATE INDEX IF NOT EXISTS idx_image_citations_message
+                ON image_citations(message_id);
             """
         )
 
@@ -220,6 +235,45 @@ def get_citations(message_id: str) -> list[dict]:
             """
             SELECT id, message_id, source, page, chunk_text, score
             FROM citations
+            WHERE message_id = ?
+            ORDER BY id ASC
+            """,
+            (message_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def add_image_citations(message_id: str, citations: Iterable[dict]) -> None:
+    values = [
+        (
+            message_id,
+            citation["image_path"],
+            citation["source"],
+            int(citation["page"]),
+            citation.get("score"),
+        )
+        for citation in citations
+    ]
+    if not values:
+        return
+
+    with _connect() as connection:
+        connection.executemany(
+            """
+            INSERT INTO image_citations
+                (message_id, image_path, source, page, score)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            values,
+        )
+
+
+def get_image_citations(message_id: str) -> list[dict]:
+    with _connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, message_id, image_path, source, page, score
+            FROM image_citations
             WHERE message_id = ?
             ORDER BY id ASC
             """,

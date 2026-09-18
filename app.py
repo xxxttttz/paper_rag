@@ -8,6 +8,7 @@ from pymilvus import MilvusClient
 import chat_service
 import config
 import database
+from image_ingest import rebuild_image_index
 from ingest import build_chunks_from_pdfs, build_collection, embed_texts
 
 
@@ -33,18 +34,34 @@ def ensure_active_conversation() -> str:
 
 def render_citations(message_id: str) -> None:
     citations = database.get_citations(message_id)
-    if not citations:
-        return
-    with st.expander(f"📎 查看 {len(citations)} 个参考片段"):
-        for index, citation in enumerate(citations, start=1):
-            score = citation.get("score")
-            score_text = f" · 相关度: {score:.3f}" if score is not None else ""
-            st.markdown(
-                f"**片段 {index}** · 来源: `{citation['source']}` "
-                f"· 第 {citation['page']} 页{score_text}"
-            )
-            text = citation["chunk_text"]
-            st.text(text[:800] + ("..." if len(text) > 800 else ""))
+    if citations:
+        with st.expander(f"📎 查看 {len(citations)} 个文本片段"):
+            for index, citation in enumerate(citations, start=1):
+                score = citation.get("score")
+                score_text = f" · 相关度: {score:.3f}" if score is not None else ""
+                st.markdown(
+                    f"**片段 {index}** · 来源: `{citation['source']}` "
+                    f"· 第 {citation['page']} 页{score_text}"
+                )
+                text = citation["chunk_text"]
+                st.text(text[:800] + ("..." if len(text) > 800 else ""))
+
+    image_citations = database.get_image_citations(message_id)
+    if image_citations:
+        with st.expander(f"🖼️ 查看 {len(image_citations)} 个图片引用"):
+            for image in image_citations:
+                image_path = image["image_path"]
+                if not os.path.isabs(image_path):
+                    image_path = os.path.join(os.path.dirname(__file__), image_path)
+                score = image.get("score")
+                score_text = f" · 相关度: {score:.3f}" if score is not None else ""
+                st.caption(
+                    f"{image['source']} · 第 {image['page']} 页{score_text}"
+                )
+                if os.path.exists(image_path):
+                    st.image(image_path, use_container_width=True)
+                else:
+                    st.warning("图片文件已不存在，请重新构建知识库索引。")
 
 
 def delete_active_conversation() -> None:
@@ -121,13 +138,28 @@ with st.sidebar:
                     milvus = MilvusClient(uri=config.MILVUS_DB_PATH)
                     build_collection(milvus)
                     milvus.insert(collection_name=config.COLLECTION_NAME, data=records)
-                    st.success(f"索引构建完成，共 {len(records)} 个文本块")
+                    try:
+                        image_records = rebuild_image_index(milvus)
+                        st.success(
+                            f"索引构建完成：{len(records)} 个文本块，"
+                            f"{len(image_records)} 张图片"
+                        )
+                    except Exception as image_error:
+                        st.warning(
+                            f"文本索引已完成（{len(records)} 个文本块），"
+                            f"但图片索引失败：{image_error}"
+                        )
         except Exception as error:
             st.error(f"索引构建失败：{error}")
 
     config.USE_HYBRID_SEARCH = st.toggle(
         "启用向量 + BM25 混合检索",
         value=config.USE_HYBRID_SEARCH,
+    )
+    config.ENABLE_RERANK = st.toggle(
+        "启用 Rerank 精排",
+        value=config.ENABLE_RERANK,
+        help="对粗筛候选进行二次排序，可提高相关性，但会增加少量调用费用。",
     )
 
 

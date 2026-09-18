@@ -5,6 +5,7 @@ from __future__ import annotations
 import database
 import config
 from generator import generate_answer, rewrite_query
+from image_retriever import retrieve_images
 from retriever import retrieve
 
 
@@ -28,6 +29,12 @@ def _build_title(question: str) -> str:
     if len(normalized) <= TITLE_MAX_LENGTH:
         return normalized
     return normalized[:TITLE_MAX_LENGTH].rstrip() + "…"
+
+
+def _needs_image_retrieval(question: str) -> bool:
+    """Only use the multimodal route for explicitly visual questions."""
+    normalized = question.lower()
+    return any(keyword in normalized for keyword in config.IMAGE_QUERY_KEYWORDS)
 
 
 def ask(conversation_id: str, question: str) -> dict:
@@ -68,10 +75,18 @@ def ask(conversation_id: str, question: str) -> dict:
         retrieval_query = clean_question
 
     chunks = retrieve(retrieval_query)
-    if not chunks:
+    images = []
+    if _needs_image_retrieval(clean_question):
+        try:
+            images = retrieve_images(retrieval_query)
+        except Exception:
+            # 图片索引是增强能力；失败时保持文本 RAG 可用。
+            images = []
+
+    if not chunks and not images:
         answer = "没有检索到相关论文内容，请确认知识库已构建并包含相关资料。"
     else:
-        answer = generate_answer(clean_question, chunks, recent_history)
+        answer = generate_answer(clean_question, chunks, recent_history, images)
 
     assistant_message_id = database.add_message(
         conversation_id,
@@ -79,6 +94,7 @@ def ask(conversation_id: str, question: str) -> dict:
         answer,
     )
     database.add_citations(assistant_message_id, chunks)
+    database.add_image_citations(assistant_message_id, images)
 
     return {
         "conversation_id": conversation_id,
@@ -86,5 +102,6 @@ def ask(conversation_id: str, question: str) -> dict:
         "assistant_message_id": assistant_message_id,
         "answer": answer,
         "citations": chunks,
+        "image_citations": images,
         "retrieval_query": retrieval_query,
     }
