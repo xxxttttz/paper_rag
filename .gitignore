@@ -4,5 +4,5 @@
 __pycache__/
 *.py[cod]
 data/
-streamlit.out.log
-streamlit.err.log
+*.out.log
+*.err.log
