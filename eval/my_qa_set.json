@@ -1,0 +1,92 @@
+[
+    {
+    "question": "DeviceRadar在实验中覆盖了多少个IoT设备，达到的吞吐量是多少，处理时间相比GPU加速方案节省了多少？", 
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 1
+    },
+
+    {
+    "question": "DeviceRadar认为在middlebox场景下唯一可靠的两个流量特征是什么？", 
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 3
+    },
+    {
+    "question": "NAT和VPN（IPSec/SSL-TLS）分别会对src-port、dst-port这些字段造成什么样的改动？", 
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 3
+    },
+    {
+    "question": "论文把已有的IoT设备指纹识别方法分成了哪三大类？",
+    "expected_source": "DeviceRadar.pdf",  
+    "expected_page": 4
+    },
+    {
+    "question": "论文的威胁模型里，攻击者（adversary）的目标是什么？", 
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 4
+    },
+    {
+    "question": "Table III里，Xiaomi插座和TP-Link摄像头的关键包（key packets）周期分别是多少？", 
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 5
+    },
+    {
+    "question": "packet embedding模型借鉴了NLP里的什么技术，训练方式是有监督还是无监督？", 
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 6
+    },
+    {
+    "question": "论文里余弦相似度的阈值λ设置为多少？", 
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 7
+    },
+    {
+    "question": "Key Packet Extraction算法用什么统计量来判断burst间隔是否稳定？",
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 7
+    },
+    {
+    "question": "最终用于设备识别的分类器选择的是什么模型？为什么选它而不是其他模型？",
+    "expected_source": "DeviceRadar.pdf",  
+    "expected_page": 7
+    },
+    {
+    "question": "P4程序里一共设计了哪四张match-action表？", 
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 8
+    },
+    {
+    "question": "实验一共用了哪几个IoT数据集，分别来自哪些地区/机构？", 
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 10
+    },
+    {
+    "question": "论文对比了哪四种baseline方法，各自分别属于signature/ML/DL哪一类？", 
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 10
+    },
+    {
+    "question": "在40Gbps线速流量下，DeviceRadar的平均处理延迟是多少微秒？", 
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 13
+    },
+    {
+    "question": "Table VI里，DeviceRadar、DarkSide、HomeMole的推理时间(inference time)分别是多少？", 
+    "expected_source": "DeviceRadar.pdf",  
+    "expected_page": 13
+    },
+    {
+    "question": "论文的Use Case部分演示了DeviceRadar跟哪种攻击场景的结合防御？用了什么设备做演示？", 
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 14
+    },
+    {
+    "question": "针对新加入网络的未知设备(newly added devices)，论文测得的平均误报率是多少？", 
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 14},
+    {
+    "question": "论文在Future Work里提到了哪些未来的研究方向？",
+    "expected_source": "DeviceRadar.pdf", 
+    "expected_page": 15
+    }
+]

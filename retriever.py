@@ -37,6 +37,7 @@ def embed_query(query: str):
 
 
 def _vector_search(mc: MilvusClient, query_vector, top_k: int):
+    mc.load_collection(config.COLLECTION_NAME)
     results = mc.search(
         collection_name=config.COLLECTION_NAME,
         data=[query_vector],
@@ -59,6 +60,7 @@ def _vector_search(mc: MilvusClient, query_vector, top_k: int):
 
 def _load_all_chunks(mc: MilvusClient):
     """取出全部chunk用于BM25建索引（论文数量小，10-30篇量级完全可以全量加载）"""
+    mc.load_collection(config.COLLECTION_NAME)
     return mc.query(
         collection_name=config.COLLECTION_NAME,
         filter="",
