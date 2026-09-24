@@ -14,7 +14,10 @@ from backend.routers.conversations import router as conversations_router
 async def lifespan(_: FastAPI):
     """Initialize application resources once when the API starts."""
     database.init_database()
-    yield
+    try:
+        yield
+    finally:
+        database.close_connections()
 
 
 class HealthResponse(BaseModel):

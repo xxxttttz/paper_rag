@@ -3,13 +3,13 @@
 import os
 
 import streamlit as st
-from pymilvus import MilvusClient
 
 import chat_service
 import config
 import database
 from image_ingest import rebuild_image_index
 from ingest import build_chunks_from_pdfs, build_collection, embed_texts
+from milvus_store import collection_exists, create_milvus_client
 
 
 st.set_page_config(page_title="论文检索 RAG 助手", page_icon="📄", layout="wide")
@@ -135,20 +135,26 @@ with st.sidebar:
                     vectors = embed_texts([record["text"] for record in records])
                     for record, vector in zip(records, vectors):
                         record["vector"] = vector
-                    milvus = MilvusClient(uri=config.MILVUS_DB_PATH)
-                    build_collection(milvus)
-                    milvus.insert(collection_name=config.COLLECTION_NAME, data=records)
+                    milvus = create_milvus_client()
                     try:
-                        image_records = rebuild_image_index(milvus)
-                        st.success(
-                            f"索引构建完成：{len(records)} 个文本块，"
-                            f"{len(image_records)} 张图片"
+                        build_collection(milvus)
+                        milvus.insert(
+                            collection_name=config.COLLECTION_NAME,
+                            data=records,
                         )
-                    except Exception as image_error:
-                        st.warning(
-                            f"文本索引已完成（{len(records)} 个文本块），"
-                            f"但图片索引失败：{image_error}"
-                        )
+                        try:
+                            image_records = rebuild_image_index(milvus)
+                            st.success(
+                                f"索引构建完成：{len(records)} 个文本块，"
+                                f"{len(image_records)} 张图片"
+                            )
+                        except Exception as image_error:
+                            st.warning(
+                                f"文本索引已完成（{len(records)} 个文本块），"
+                                f"但图片索引失败：{image_error}"
+                            )
+                    finally:
+                        milvus.close()
         except Exception as error:
             st.error(f"索引构建失败：{error}")
 
@@ -179,12 +185,12 @@ for message in messages:
 
 question = st.chat_input("询问论文内容……")
 if question:
-    if not os.path.exists(config.MILVUS_DB_PATH):
-        st.error("还没有构建知识库索引，请先上传 PDF 并重新构建索引。")
-    else:
-        try:
+    try:
+        if not collection_exists(config.COLLECTION_NAME):
+            st.error("还没有构建知识库索引，请先上传 PDF 并重新构建索引。")
+        else:
             with st.spinner("正在理解问题、检索论文并生成回答..."):
                 chat_service.ask(active_conversation_id, question)
             st.rerun()
-        except Exception as error:
-            st.error(f"回答生成失败：{error}")
+    except Exception as error:
+        st.error(f"回答生成失败：{error}")

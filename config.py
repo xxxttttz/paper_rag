@@ -26,9 +26,12 @@ DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", OPENAI_API_KEY)
 DASHSCOPE_BASE_URL = os.getenv("DASHSCOPE_BASE_URL", "")
 
 
-# ---- Milvus Lite ----
-# Milvus Lite 是嵌入式版本，直接指定一个本地文件路径即可，无需部署服务
+# ---- Milvus ----
+# 默认使用嵌入式 Lite；设置 MILVUS_URI 后可切换到服务版。
 MILVUS_DB_PATH = os.path.join(os.path.dirname(__file__), "data", "paper_rag.db")
+MILVUS_URI = os.getenv("MILVUS_URI", MILVUS_DB_PATH)
+MILVUS_TOKEN = os.getenv("MILVUS_TOKEN", "")
+MILVUS_DATABASE = os.getenv("MILVUS_DATABASE", "default")
 COLLECTION_NAME = "paper_chunks"
 IMAGE_COLLECTION_NAME = "paper_images"
 

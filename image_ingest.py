@@ -26,6 +26,7 @@ import dashscope
 from pymilvus import MilvusClient, DataType
 
 import config
+from milvus_store import configured_target, create_milvus_client
 
 dashscope.api_key = config.DASHSCOPE_API_KEY
 if config.DASHSCOPE_BASE_URL:
@@ -179,22 +180,27 @@ def build_image_collection(mc: MilvusClient):
 def rebuild_image_index(mc: MilvusClient | None = None) -> list[dict]:
     """抽取、向量化并重建图片 collection，返回写入的图片记录。"""
     records = save_images_from_pdfs(config.PDF_DIR, config.IMAGE_DIR)
-    mc = mc or MilvusClient(uri=config.MILVUS_DB_PATH)
-    if not records:
-        if mc.has_collection(config.IMAGE_COLLECTION_NAME):
-            mc.drop_collection(config.IMAGE_COLLECTION_NAME)
-        return []
+    owns_client = mc is None
+    mc = mc or create_milvus_client()
+    try:
+        if not records:
+            if mc.has_collection(config.IMAGE_COLLECTION_NAME):
+                mc.drop_collection(config.IMAGE_COLLECTION_NAME)
+            return []
 
-    print("正在生成图片embedding（逐张调用，数量少可以接受）...")
-    for i, r in enumerate(records, start=1):
-        r["vector"] = embed_image(r["image_path"])
-        print(f"  已完成: {i}/{len(records)}")
+        print("正在生成图片embedding（逐张调用，数量少可以接受）...")
+        for i, r in enumerate(records, start=1):
+            r["vector"] = embed_image(r["image_path"])
+            print(f"  已完成: {i}/{len(records)}")
 
-    print("正在写入Milvus Lite...")
-    build_image_collection(mc)
-    mc.insert(collection_name=config.IMAGE_COLLECTION_NAME, data=records)
-    print(f"完成！共写入 {len(records)} 张图到 {config.MILVUS_DB_PATH}")
-    return records
+        print("正在写入 Milvus...")
+        build_image_collection(mc)
+        mc.insert(collection_name=config.IMAGE_COLLECTION_NAME, data=records)
+        print(f"完成！共写入 {len(records)} 张图到 {configured_target()}")
+        return records
+    finally:
+        if owns_client:
+            mc.close()
 
 
 def main():

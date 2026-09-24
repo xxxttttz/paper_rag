@@ -27,6 +27,7 @@ from openai import OpenAI
 from pymilvus import MilvusClient, DataType
 
 import config
+from milvus_store import configured_target, create_milvus_client
 
 encoder = tiktoken.get_encoding("cl100k_base")
 client_openai = OpenAI(api_key=config.OPENAI_API_KEY, base_url=config.OPENAI_BASE_URL)
@@ -222,8 +223,6 @@ def main():
         )
 
     os.makedirs(config.PDF_DIR, exist_ok=True)
-    os.makedirs(os.path.dirname(config.MILVUS_DB_PATH), exist_ok=True)
-
     records = build_chunks_from_pdfs(config.PDF_DIR)
     if not records:
         return
@@ -233,11 +232,14 @@ def main():
     for r, v in zip(records, vectors):
         r["vector"] = v
 
-    print("正在写入Milvus Lite...")
-    mc = MilvusClient(uri=config.MILVUS_DB_PATH)
-    build_collection(mc)
-    mc.insert(collection_name=config.COLLECTION_NAME, data=records)
-    print(f"完成！共写入 {len(records)} 条数据到 {config.MILVUS_DB_PATH}")
+    print("正在写入 Milvus...")
+    mc = create_milvus_client()
+    try:
+        build_collection(mc)
+        mc.insert(collection_name=config.COLLECTION_NAME, data=records)
+    finally:
+        mc.close()
+    print(f"完成！共写入 {len(records)} 条数据到 {configured_target()}")
 
 
 
