@@ -60,3 +60,14 @@ class ChatResponse(BaseModel):
     citations: list[TextCitationResponse]
     image_citations: list[ImageCitationResponse]
     retrieval_query: str
+
+
+class IngestionJobResponse(BaseModel):
+    job_id: str
+    status: str
+    stage: str | None = None
+    result: dict | None = None
+    error: str | None = None
+    enqueued_at: datetime | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None

@@ -42,10 +42,14 @@ SQLite 或 PostgreSQL 保存问题、回答和引用快照
 ```text
 paper_rag/
 ├── backend/                    # FastAPI 应用、路由和 Schema
-├── scripts/                    # Milvus 与聊天历史迁移脚本
+├── scripts/                    # 迁移脚本与 worker 启动入口
 ├── tests/                      # 自动化测试
 ├── app.py                      # Streamlit 多会话页面
+├── api_client.py               # Streamlit 调用 FastAPI 的 HTTP 客户端
 ├── chat_service.py             # 对话、检索、生成和持久化编排
+├── ingestion_service.py        # 文本与图片索引重建编排
+├── job_queue.py                # Redis/RQ 任务入队与状态查询
+├── worker_tasks.py             # 后台 worker 执行的任务
 ├── config.py                   # 模型、路径和检索参数
 ├── database.py                 # SQLite/PostgreSQL 动态分派
 ├── postgres_database.py        # PostgreSQL 连接池与数据访问
@@ -165,16 +169,38 @@ DATABASE_URL=postgresql://paper_rag:paper_rag_dev@127.0.0.1:5432/paper_rag
 
 ## 5. 启动应用
 
+企业模式需要在三个 Ubuntu 终端中分别运行 Streamlit、FastAPI 和 worker。
+
+终端 1：启动 FastAPI。
+
+```bash
+cd /mnt/c/Users/<你的用户名>/path/to/paper_rag
+source ~/.venvs/paper-rag/bin/activate
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+终端 2：启动知识库构建 worker。
+
+```bash
+cd /mnt/c/Users/<你的用户名>/path/to/paper_rag
+source ~/.venvs/paper-rag/bin/activate
+python scripts/run_worker.py
+```
+
+终端 3：启动 Streamlit 页面。
+
 ```bash
 cd /mnt/c/Users/<你的用户名>/path/to/paper_rag
 source ~/.venvs/paper-rag/bin/activate
 streamlit run app.py
 ```
 
-也可以启动 FastAPI：
+API 接收页面请求并把耗时的索引构建任务放入 Redis；worker 在后台完成 PDF 解析、向量生成和 Milvus 写入；Streamlit 每 2 秒查询一次任务进度。如果 API 不在本机 `8000` 端口，在 `.env` 中设置 `API_BASE_URL`。
+
+需要只检查 worker 能否连接 Redis、但不持续驻留时，可运行：
 
 ```bash
-uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+python scripts/run_worker.py --burst
 ```
 
 API 文档地址：
@@ -201,10 +227,24 @@ hostname -I
 
 1. 在左侧上传一篇或多篇 PDF。
 2. 点击“重新构建知识库索引”。
-3. 等待文本解析、图片抽取、向量生成和 Milvus 写入完成。
+3. 在侧边栏查看排队、PDF 解析、文本向量、图片向量和写入进度。
 4. 在页面底部输入论文相关问题。
 
 每次重新构建都会替换现有 Milvus collection。聊天历史不会因此删除，但旧回答保存的是当时引用片段的文本快照。
+
+也可以通过异步 API 发起重建：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/ingestion/jobs
+```
+
+接口会返回 `job_id`。使用该 ID 查询进度：
+
+```bash
+curl http://127.0.0.1:8000/api/v1/ingestion/jobs/<job_id>
+```
+
+任务状态包括 `queued`、`started`、`finished` 和 `failed`；`stage` 会显示 `parsing`、`embedding_text`、`writing_text`、`embedding_images` 或 `completed`。同一时间只允许一个知识库重建任务，重复提交会返回 HTTP 409。
 
 ## 从 Lite 迁移到企业模式
 

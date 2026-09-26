@@ -83,3 +83,11 @@ IMAGE_QUERY_KEYWORDS = (
 # ---- 对话 ----
 MAX_HISTORY_MESSAGES = 6   # 发送给模型的最近消息数（3轮问答）
 CONVERSATION_TITLE_LENGTH = 30
+
+# ---- 异步任务 ----
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+API_REQUEST_TIMEOUT = float(os.getenv("API_REQUEST_TIMEOUT", "5"))
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+INGESTION_QUEUE_NAME = os.getenv("INGESTION_QUEUE_NAME", "paper-rag-ingestion")
+INGESTION_JOB_TIMEOUT = int(os.getenv("INGESTION_JOB_TIMEOUT", "7200"))
+INGESTION_RESULT_TTL = int(os.getenv("INGESTION_RESULT_TTL", "86400"))
