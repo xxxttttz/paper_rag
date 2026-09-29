@@ -3,13 +3,12 @@
 import os
 
 import streamlit as st
-from pymilvus import MilvusClient
 
+import api_client
 import chat_service
 import config
 import database
-from image_ingest import rebuild_image_index
-from ingest import build_chunks_from_pdfs, build_collection, embed_texts
+from milvus_store import collection_exists
 
 
 st.set_page_config(page_title="论文检索 RAG 助手", page_icon="📄", layout="wide")
@@ -20,6 +19,25 @@ if not config.OPENAI_API_KEY:
 
 chat_service.initialize()
 os.makedirs(config.PDF_DIR, exist_ok=True)
+
+INGESTION_STAGE_LABELS = {
+    "queued": "等待 worker 处理",
+    "started": "任务已开始",
+    "parsing": "正在解析 PDF",
+    "embedding_text": "正在生成文本向量",
+    "writing_text": "正在写入文本索引",
+    "embedding_images": "正在生成图片向量",
+    "completed": "索引构建完成",
+}
+INGESTION_STAGE_PROGRESS = {
+    "queued": 5,
+    "started": 10,
+    "parsing": 20,
+    "embedding_text": 40,
+    "writing_text": 65,
+    "embedding_images": 80,
+    "completed": 100,
+}
 
 
 def ensure_active_conversation() -> str:
@@ -70,6 +88,67 @@ def delete_active_conversation() -> None:
         database.delete_conversation(conversation_id)
     st.session_state.pop("active_conversation_id", None)
     st.session_state.confirm_delete_conversation = False
+
+
+def _finish_ingestion_job(job: dict) -> None:
+    st.session_state.pop("ingestion_job_id", None)
+    st.session_state.ingestion_last_job = job
+    st.rerun()
+
+
+@st.fragment(run_every="2s")
+def render_active_ingestion_job(job_id: str) -> None:
+    try:
+        job = api_client.get_ingestion_job(job_id)
+    except api_client.PaperRAGAPIError as error:
+        if error.status_code == 404:
+            _finish_ingestion_job({"job_id": job_id, "status": "expired"})
+            return
+        st.warning(f"暂时无法获取索引任务状态：{error}")
+        return
+
+    status = job["status"]
+    stage = job.get("stage") or status
+    stage_label = INGESTION_STAGE_LABELS.get(stage, stage)
+    progress = INGESTION_STAGE_PROGRESS.get(stage, 10)
+
+    if status == "failed":
+        st.error(f"索引构建失败：{job.get('error') or '未知错误'}")
+        _finish_ingestion_job(job)
+        return
+    if status in {"canceled", "stopped"}:
+        st.warning(f"索引任务已{status}")
+        _finish_ingestion_job(job)
+        return
+    if status == "finished":
+        _finish_ingestion_job(job)
+        return
+
+    st.progress(progress, text=stage_label)
+    st.caption(f"任务 ID：{job_id}")
+
+
+def render_last_ingestion_job(job: dict) -> None:
+    status = job.get("status")
+    result = job.get("result") or {}
+    if status == "finished":
+        image_error = result.get("image_error")
+        if image_error:
+            st.warning(
+                f"文本索引已完成（{result.get('text_chunks', 0)} 个文本块），"
+                f"但图片索引失败：{image_error}"
+            )
+        else:
+            st.success(
+                f"索引构建完成：{result.get('text_chunks', 0)} 个文本块，"
+                f"{result.get('images', 0)} 张图片"
+            )
+    elif status == "failed":
+        st.error(f"索引构建失败：{job.get('error') or '未知错误'}")
+    elif status == "expired":
+        st.warning("任务记录已过期或不存在，可以重新提交构建；此前任务的完成结果无法确认。")
+    else:
+        st.warning(f"索引任务已结束：{status}")
 
 
 active_conversation_id = ensure_active_conversation()
@@ -125,32 +204,34 @@ with st.sidebar:
     for filename in existing_pdfs:
         st.caption(f"• {filename}")
 
-    if st.button("🔨 重新构建知识库索引", use_container_width=True):
+    active_ingestion_job_id = st.session_state.get("ingestion_job_id")
+    if st.button(
+        "🔨 重新构建知识库索引",
+        use_container_width=True,
+        disabled=bool(active_ingestion_job_id) or not existing_pdfs,
+    ):
         try:
-            with st.spinner("正在解析 PDF、生成向量并写入 Milvus..."):
-                records = build_chunks_from_pdfs(config.PDF_DIR)
-                if not records:
-                    st.warning("知识库为空，请先上传 PDF。")
-                else:
-                    vectors = embed_texts([record["text"] for record in records])
-                    for record, vector in zip(records, vectors):
-                        record["vector"] = vector
-                    milvus = MilvusClient(uri=config.MILVUS_DB_PATH)
-                    build_collection(milvus)
-                    milvus.insert(collection_name=config.COLLECTION_NAME, data=records)
-                    try:
-                        image_records = rebuild_image_index(milvus)
-                        st.success(
-                            f"索引构建完成：{len(records)} 个文本块，"
-                            f"{len(image_records)} 张图片"
-                        )
-                    except Exception as image_error:
-                        st.warning(
-                            f"文本索引已完成（{len(records)} 个文本块），"
-                            f"但图片索引失败：{image_error}"
-                        )
-        except Exception as error:
-            st.error(f"索引构建失败：{error}")
+            job = api_client.create_ingestion_job()
+            st.session_state.ingestion_job_id = job["job_id"]
+            st.session_state.pop("ingestion_last_job", None)
+            st.rerun()
+        except api_client.PaperRAGAPIError as error:
+            detail = error.detail
+            if error.status_code == 409 and isinstance(detail, dict):
+                st.session_state.ingestion_job_id = detail.get("job_id")
+                st.warning("已有索引任务正在运行，已恢复进度跟踪。")
+                st.rerun()
+            else:
+                st.error(str(error))
+
+    active_ingestion_job_id = st.session_state.get("ingestion_job_id")
+    if active_ingestion_job_id:
+        render_active_ingestion_job(active_ingestion_job_id)
+    elif last_job := st.session_state.get("ingestion_last_job"):
+        render_last_ingestion_job(last_job)
+        if st.button("清除任务状态", use_container_width=True):
+            st.session_state.pop("ingestion_last_job", None)
+            st.rerun()
 
     config.USE_HYBRID_SEARCH = st.toggle(
         "启用向量 + BM25 混合检索",
@@ -179,12 +260,12 @@ for message in messages:
 
 question = st.chat_input("询问论文内容……")
 if question:
-    if not os.path.exists(config.MILVUS_DB_PATH):
-        st.error("还没有构建知识库索引，请先上传 PDF 并重新构建索引。")
-    else:
-        try:
+    try:
+        if not collection_exists(config.COLLECTION_NAME):
+            st.error("还没有构建知识库索引，请先上传 PDF 并重新构建索引。")
+        else:
             with st.spinner("正在理解问题、检索论文并生成回答..."):
                 chat_service.ask(active_conversation_id, question)
             st.rerun()
-        except Exception as error:
-            st.error(f"回答生成失败：{error}")
+    except Exception as error:
+        st.error(f"回答生成失败：{error}")

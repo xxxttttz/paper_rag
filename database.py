@@ -11,8 +11,28 @@ import uuid
 from datetime import datetime, timezone
 from typing import Iterable
 
+from dotenv import load_dotenv
+
+
+load_dotenv()
 
 CHAT_DB_PATH = os.path.join(os.path.dirname(__file__), "data", "chat_history.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+
+def _postgres_backend():
+    if not DATABASE_URL:
+        return None
+    import postgres_database
+
+    return postgres_database
+
+
+def close_connections() -> None:
+    """Release backend connection pools during application shutdown."""
+    backend = _postgres_backend()
+    if backend:
+        backend.close_pools()
 
 
 def _now() -> str:
@@ -30,6 +50,10 @@ def _connect() -> sqlite3.Connection:
 
 def init_database() -> None:
     """Create the chat database and tables when they do not exist."""
+    backend = _postgres_backend()
+    if backend:
+        backend.init_database(DATABASE_URL)
+        return
     with _connect() as connection:
         connection.execute("PRAGMA journal_mode = WAL")
         connection.executescript(
@@ -89,6 +113,9 @@ def init_database() -> None:
 
 
 def create_conversation(title: str = "新会话") -> str:
+    backend = _postgres_backend()
+    if backend:
+        return backend.create_conversation(DATABASE_URL, title)
     conversation_id = str(uuid.uuid4())
     timestamp = _now()
     with _connect() as connection:
@@ -103,6 +130,9 @@ def create_conversation(title: str = "新会话") -> str:
 
 
 def list_conversations() -> list[dict]:
+    backend = _postgres_backend()
+    if backend:
+        return backend.list_conversations(DATABASE_URL)
     with _connect() as connection:
         rows = connection.execute(
             """
@@ -115,6 +145,9 @@ def list_conversations() -> list[dict]:
 
 
 def get_conversation(conversation_id: str) -> dict | None:
+    backend = _postgres_backend()
+    if backend:
+        return backend.get_conversation(DATABASE_URL, conversation_id)
     with _connect() as connection:
         row = connection.execute(
             """
@@ -128,6 +161,10 @@ def get_conversation(conversation_id: str) -> dict | None:
 
 
 def rename_conversation(conversation_id: str, title: str) -> None:
+    backend = _postgres_backend()
+    if backend:
+        backend.rename_conversation(DATABASE_URL, conversation_id, title)
+        return
     clean_title = title.strip()
     if not clean_title:
         raise ValueError("Conversation title cannot be empty")
@@ -143,6 +180,10 @@ def rename_conversation(conversation_id: str, title: str) -> None:
 
 
 def delete_conversation(conversation_id: str) -> None:
+    backend = _postgres_backend()
+    if backend:
+        backend.delete_conversation(DATABASE_URL, conversation_id)
+        return
     with _connect() as connection:
         connection.execute(
             "DELETE FROM conversations WHERE id = ?",
@@ -151,6 +192,9 @@ def delete_conversation(conversation_id: str) -> None:
 
 
 def add_message(conversation_id: str, role: str, content: str) -> str:
+    backend = _postgres_backend()
+    if backend:
+        return backend.add_message(DATABASE_URL, conversation_id, role, content)
     if role not in {"user", "assistant"}:
         raise ValueError("role must be 'user' or 'assistant'")
 
@@ -176,6 +220,9 @@ def add_message(conversation_id: str, role: str, content: str) -> str:
 
 
 def get_messages(conversation_id: str, limit: int | None = None) -> list[dict]:
+    backend = _postgres_backend()
+    if backend:
+        return backend.get_messages(DATABASE_URL, conversation_id, limit)
     with _connect() as connection:
         if limit is None:
             rows = connection.execute(
@@ -205,6 +252,10 @@ def get_messages(conversation_id: str, limit: int | None = None) -> list[dict]:
 
 
 def add_citations(message_id: str, citations: Iterable[dict]) -> None:
+    backend = _postgres_backend()
+    if backend:
+        backend.add_citations(DATABASE_URL, message_id, citations)
+        return
     values = [
         (
             message_id,
@@ -230,6 +281,9 @@ def add_citations(message_id: str, citations: Iterable[dict]) -> None:
 
 
 def get_citations(message_id: str) -> list[dict]:
+    backend = _postgres_backend()
+    if backend:
+        return backend.get_citations(DATABASE_URL, message_id)
     with _connect() as connection:
         rows = connection.execute(
             """
@@ -244,6 +298,10 @@ def get_citations(message_id: str) -> list[dict]:
 
 
 def add_image_citations(message_id: str, citations: Iterable[dict]) -> None:
+    backend = _postgres_backend()
+    if backend:
+        backend.add_image_citations(DATABASE_URL, message_id, citations)
+        return
     values = [
         (
             message_id,
@@ -269,6 +327,9 @@ def add_image_citations(message_id: str, citations: Iterable[dict]) -> None:
 
 
 def get_image_citations(message_id: str) -> list[dict]:
+    backend = _postgres_backend()
+    if backend:
+        return backend.get_image_citations(DATABASE_URL, message_id)
     with _connect() as connection:
         rows = connection.execute(
             """

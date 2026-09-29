@@ -17,6 +17,7 @@ from openai import OpenAI
 from pymilvus import MilvusClient
 
 import config
+from milvus_store import create_milvus_client
 
 client_openai = OpenAI(
     api_key=config.OPENAI_API_KEY,
@@ -37,6 +38,7 @@ def embed_query(query: str):
 
 
 def _vector_search(mc: MilvusClient, query_vector, top_k: int):
+    mc.load_collection(config.COLLECTION_NAME)
     results = mc.search(
         collection_name=config.COLLECTION_NAME,
         data=[query_vector],
@@ -59,6 +61,7 @@ def _vector_search(mc: MilvusClient, query_vector, top_k: int):
 
 def _load_all_chunks(mc: MilvusClient):
     """取出全部chunk用于BM25建索引（论文数量小，10-30篇量级完全可以全量加载）"""
+    mc.load_collection(config.COLLECTION_NAME)
     return mc.query(
         collection_name=config.COLLECTION_NAME,
         filter="",
@@ -131,14 +134,24 @@ def retrieve(query: str, top_k: int = None):
     对外的统一检索入口。
     返回按相关度排序的 [{text, source, page, score}, ...]
     """
+    mc = create_milvus_client()
+    try:
+        return _retrieve_with_client(mc, query, top_k)
+    finally:
+        mc.close()
+
+
+def _retrieve_with_client(
+    mc: MilvusClient,
+    query: str,
+    top_k: int | None = None,
+):
     top_k = top_k or config.TOP_K
     candidate_k = (
         max(top_k, config.RERANK_CANDIDATE_K)
         if config.ENABLE_RERANK
         else top_k
     )
-    mc = MilvusClient(uri=config.MILVUS_DB_PATH)
-
     query_vector = embed_query(query)
     vector_hits = _vector_search(mc, query_vector, top_k=candidate_k)
 
