@@ -7,7 +7,7 @@ from collections.abc import Callable
 import config
 from image_ingest import rebuild_image_index
 from ingest import build_chunks_from_pdfs, build_collection, embed_texts
-from milvus_store import create_milvus_client
+from milvus_store import create_milvus_client, staged_collection
 
 
 ProgressCallback = Callable[[str, dict], None]
@@ -25,15 +25,18 @@ def rebuild_knowledge_base(
 
     notify("embedding_text", {"text_chunks": len(records)})
     vectors = embed_texts([record["text"] for record in records])
+    if len(vectors) != len(records):
+        raise RuntimeError("Embedding count does not match text chunk count")
     for record, vector in zip(records, vectors):
         record["vector"] = vector
 
     notify("writing_text", {"text_chunks": len(records)})
     milvus = create_milvus_client()
     try:
-        build_collection(milvus)
-        milvus.insert(collection_name=config.COLLECTION_NAME, data=records)
-        milvus.flush(config.COLLECTION_NAME)
+        with staged_collection(
+            milvus, config.COLLECTION_NAME, build_collection, len(records)
+        ) as staging:
+            milvus.insert(collection_name=staging, data=records)
 
         notify("embedding_images", {"text_chunks": len(records)})
         try:

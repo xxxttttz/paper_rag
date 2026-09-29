@@ -26,7 +26,7 @@ import dashscope
 from pymilvus import MilvusClient, DataType
 
 import config
-from milvus_store import configured_target, create_milvus_client
+from milvus_store import configured_target, create_milvus_client, staged_collection
 
 dashscope.api_key = config.DASHSCOPE_API_KEY
 if config.DASHSCOPE_BASE_URL:
@@ -155,9 +155,10 @@ def embed_text_query(text: str):
     return resp.output["embeddings"][0]["embedding"]
 
 
-def build_image_collection(mc: MilvusClient):
-    if mc.has_collection(config.IMAGE_COLLECTION_NAME):
-        mc.drop_collection(config.IMAGE_COLLECTION_NAME)
+def build_image_collection(mc: MilvusClient, collection_name: str | None = None):
+    collection_name = collection_name or config.IMAGE_COLLECTION_NAME
+    if mc.has_collection(collection_name):
+        raise ValueError(f"Collection already exists: {collection_name}")
 
     schema = mc.create_schema(auto_id=False, enable_dynamic_field=True)
     schema.add_field("id", DataType.VARCHAR, is_primary=True, max_length=64)
@@ -170,11 +171,11 @@ def build_image_collection(mc: MilvusClient):
     index_params.add_index(field_name="vector", index_type="AUTOINDEX", metric_type="COSINE")
 
     mc.create_collection(
-        collection_name=config.IMAGE_COLLECTION_NAME,
+        collection_name=collection_name,
         schema=schema,
         index_params=index_params,
     )
-    print(f"已创建collection: {config.IMAGE_COLLECTION_NAME}")
+    print(f"已创建collection: {collection_name}")
 
 
 def rebuild_image_index(mc: MilvusClient | None = None) -> list[dict]:
@@ -183,19 +184,17 @@ def rebuild_image_index(mc: MilvusClient | None = None) -> list[dict]:
     owns_client = mc is None
     mc = mc or create_milvus_client()
     try:
-        if not records:
-            if mc.has_collection(config.IMAGE_COLLECTION_NAME):
-                mc.drop_collection(config.IMAGE_COLLECTION_NAME)
-            return []
-
         print("正在生成图片embedding（逐张调用，数量少可以接受）...")
         for i, r in enumerate(records, start=1):
             r["vector"] = embed_image(r["image_path"])
             print(f"  已完成: {i}/{len(records)}")
 
         print("正在写入 Milvus...")
-        build_image_collection(mc)
-        mc.insert(collection_name=config.IMAGE_COLLECTION_NAME, data=records)
+        with staged_collection(
+            mc, config.IMAGE_COLLECTION_NAME, build_image_collection, len(records)
+        ) as staging:
+            if records:
+                mc.insert(collection_name=staging, data=records)
         print(f"完成！共写入 {len(records)} 张图到 {configured_target()}")
         return records
     finally:

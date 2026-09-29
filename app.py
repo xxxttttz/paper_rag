@@ -101,6 +101,9 @@ def render_active_ingestion_job(job_id: str) -> None:
     try:
         job = api_client.get_ingestion_job(job_id)
     except api_client.PaperRAGAPIError as error:
+        if error.status_code == 404:
+            _finish_ingestion_job({"job_id": job_id, "status": "expired"})
+            return
         st.warning(f"暂时无法获取索引任务状态：{error}")
         return
 
@@ -142,6 +145,8 @@ def render_last_ingestion_job(job: dict) -> None:
             )
     elif status == "failed":
         st.error(f"索引构建失败：{job.get('error') or '未知错误'}")
+    elif status == "expired":
+        st.warning("任务记录已过期或不存在，可以重新提交构建；此前任务的完成结果无法确认。")
     else:
         st.warning(f"索引任务已结束：{status}")
 

@@ -27,7 +27,7 @@ from openai import OpenAI
 from pymilvus import MilvusClient, DataType
 
 import config
-from milvus_store import configured_target, create_milvus_client
+from milvus_store import configured_target, create_milvus_client, staged_collection
 
 encoder = tiktoken.get_encoding("cl100k_base")
 client_openai = OpenAI(api_key=config.OPENAI_API_KEY, base_url=config.OPENAI_BASE_URL)
@@ -190,10 +190,11 @@ def embed_texts(texts: list[str], batch_size: int = 10):
 
 
 
-def build_collection(mc: MilvusClient):
-    """创建（或重建）collection"""
-    if mc.has_collection(config.COLLECTION_NAME):
-        mc.drop_collection(config.COLLECTION_NAME)
+def build_collection(mc: MilvusClient, collection_name: str | None = None):
+    """Create a new text collection without removing an existing index."""
+    collection_name = collection_name or config.COLLECTION_NAME
+    if mc.has_collection(collection_name):
+        raise ValueError(f"Collection already exists: {collection_name}")
 
     schema = mc.create_schema(auto_id=False, enable_dynamic_field=True)
     schema.add_field("id", DataType.VARCHAR, is_primary=True, max_length=64)
@@ -206,11 +207,11 @@ def build_collection(mc: MilvusClient):
     index_params.add_index(field_name="vector", index_type="AUTOINDEX", metric_type="COSINE")
 
     mc.create_collection(
-        collection_name=config.COLLECTION_NAME,
+        collection_name=collection_name,
         schema=schema,
         index_params=index_params,
     )
-    print(f"已创建collection: {config.COLLECTION_NAME}")
+    print(f"已创建collection: {collection_name}")
 
 
 
@@ -229,14 +230,16 @@ def main():
 
     print("正在生成embedding...")
     vectors = embed_texts([r["text"] for r in records])
+    if len(vectors) != len(records):
+        raise RuntimeError("Embedding count does not match text chunk count")
     for r, v in zip(records, vectors):
         r["vector"] = v
 
     print("正在写入 Milvus...")
     mc = create_milvus_client()
     try:
-        build_collection(mc)
-        mc.insert(collection_name=config.COLLECTION_NAME, data=records)
+        with staged_collection(mc, config.COLLECTION_NAME, build_collection, len(records)) as staging:
+            mc.insert(collection_name=staging, data=records)
     finally:
         mc.close()
     print(f"完成！共写入 {len(records)} 条数据到 {configured_target()}")

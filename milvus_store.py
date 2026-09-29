@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
 from pymilvus import MilvusClient
 
@@ -10,6 +14,69 @@ import config
 
 
 SERVER_URI_PREFIXES = ("http://", "https://", "tcp://")
+logger = logging.getLogger(__name__)
+
+
+def collection_aliases(client: MilvusClient, name: str) -> list[str]:
+    """Normalize alias responses across PyMilvus versions."""
+    response = client.list_aliases(collection_name=name)
+    return response.get("aliases", []) if isinstance(response, dict) else response
+
+
+def _publish_collection(client: MilvusClient, name: str, staging: str) -> None:
+    """Publish a ready collection, retaining the previous physical version."""
+    if name in client.list_collections():
+        # Upgrade legacy physical names to aliases on the first safe rebuild.
+        backup = f"{name}_backup_{uuid.uuid4().hex}"
+        try:
+            client.rename_collection(old_name=name, new_name=backup)
+            client.create_alias(collection_name=staging, alias=name)
+        except Exception:
+            # Also handle a rename that succeeded remotely but timed out locally.
+            if client.has_collection(backup) and not client.has_collection(name):
+                client.rename_collection(old_name=backup, new_name=name)
+            raise
+    elif client.has_collection(name):
+        client.alter_alias(collection_name=staging, alias=name)
+    else:
+        client.create_alias(collection_name=staging, alias=name)
+
+
+@contextmanager
+def staged_collection(
+    client: MilvusClient,
+    name: str,
+    builder: Callable[[MilvusClient, str], None],
+    expected_count: int,
+) -> Iterator[str]:
+    """Build and validate a private version before switching the public alias."""
+    staging = f"{name}_version_{uuid.uuid4().hex}"
+    try:
+        builder(client, staging)
+        yield staging
+        client.flush(staging)
+        client.load_collection(staging)
+        counts = client.query(
+            collection_name=staging,
+            filter="",
+            output_fields=["count(*)"],
+            consistency_level="Strong",
+        )
+        actual_count = int(counts[0]["count(*)"])
+        if actual_count != expected_count:
+            raise RuntimeError(
+                f"Index row count mismatch: expected {expected_count}, got {actual_count}"
+            )
+        _publish_collection(client, name, staging)
+    except Exception:
+        try:
+            # A publish RPC may succeed before its response times out. Never
+            # remove a version that already has a public alias attached.
+            if client.has_collection(staging) and not collection_aliases(client, staging):
+                client.drop_collection(staging)
+        except Exception:
+            logger.exception("Could not clean up unpublished index %s", staging)
+        raise
 
 
 def is_milvus_lite(uri: str | None = None) -> bool:

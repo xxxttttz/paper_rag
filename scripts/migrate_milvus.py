@@ -20,10 +20,10 @@ if PROJECT_ROOT not in sys.path:
 import config
 from image_ingest import build_image_collection
 from ingest import build_collection
-from milvus_store import is_milvus_lite
+from milvus_store import is_milvus_lite, staged_collection
 
 
-CollectionBuilder = Callable[[MilvusClient], None]
+CollectionBuilder = Callable[[MilvusClient, str], None]
 
 COLLECTIONS: dict[str, tuple[list[str], CollectionBuilder]] = {
     config.COLLECTION_NAME: (
@@ -85,26 +85,24 @@ def _copy_collection(
 ) -> tuple[int, int]:
     source.load_collection(collection_name)
     source_count = _row_count(source, collection_name)
-    build_target(target)
-
     copied = 0
-    iterator = source.query_iterator(
-        collection_name=collection_name,
-        batch_size=batch_size,
-        output_fields=output_fields,
-    )
-    try:
-        while True:
-            batch = iterator.next()
-            if not batch:
-                break
-            target.insert(collection_name=collection_name, data=batch)
-            copied += len(batch)
-            print(f"  {collection_name}: {copied}/{source_count}")
-    finally:
-        iterator.close()
+    with staged_collection(target, collection_name, build_target, source_count) as staging:
+        iterator = source.query_iterator(
+            collection_name=collection_name,
+            batch_size=batch_size,
+            output_fields=output_fields,
+        )
+        try:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                target.insert(collection_name=staging, data=batch)
+                copied += len(batch)
+                print(f"  {collection_name}: {copied}/{source_count}")
+        finally:
+            iterator.close()
 
-    target.flush(collection_name)
     target_count = _row_count(target, collection_name)
     return source_count, target_count
 
@@ -130,8 +128,7 @@ def migrate(args: argparse.Namespace) -> None:
     source = MilvusClient(uri=source_path)
     target = MilvusClient(**target_options)
     try:
-        source_collections = set(source.list_collections())
-        selected = [name for name in COLLECTIONS if name in source_collections]
+        selected = [name for name in COLLECTIONS if source.has_collection(name)]
         if not selected:
             raise RuntimeError("The source contains no Paper RAG collections")
 
