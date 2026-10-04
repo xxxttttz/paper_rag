@@ -55,8 +55,21 @@ VECTOR_WEIGHT = 0.7        # 混合检索中向量分数的权重（BM25权重�
 ENABLE_RERANK = os.getenv("ENABLE_RERANK", "true").lower() in {
     "1", "true", "yes", "on"
 }
+ENABLE_DIVERSE_RERANK = os.getenv("ENABLE_DIVERSE_RERANK", "false").lower() in {
+    "1", "true", "yes", "on"
+}
+ENABLE_REQUIREMENT_SELECTION = os.getenv("ENABLE_REQUIREMENT_SELECTION", "false").lower() in {
+    "1", "true", "yes", "on"
+}
 RERANK_MODEL = os.getenv("RERANK_MODEL", "qwen3-rerank")
 RERANK_CANDIDATE_K = int(os.getenv("RERANK_CANDIDATE_K", "20"))
+ENABLE_GRAPH_RETRIEVAL = os.getenv("ENABLE_GRAPH_RETRIEVAL", "false").lower() in {
+    "1", "true", "yes", "on"
+}
+ENABLE_GRAPH_BUILD = os.getenv("ENABLE_GRAPH_BUILD", "false").lower() in {
+    "1", "true", "yes", "on"
+}
+GRAPH_EVIDENCE_K = int(os.getenv("GRAPH_EVIDENCE_K", "2"))
 IMAGE_EMBEDDING_MODEL = os.getenv("IMAGE_EMBEDDING_MODEL", "qwen3-vl-embedding")
 IMAGE_EMBEDDING_DIM = int(os.getenv("IMAGE_EMBEDDING_DIM", "1024"))
 IMAGE_TOP_K = int(os.getenv("IMAGE_TOP_K", "2"))
@@ -87,6 +100,7 @@ CONVERSATION_TITLE_LENGTH = 30
 # ---- 异步任务 ----
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 API_REQUEST_TIMEOUT = float(os.getenv("API_REQUEST_TIMEOUT", "5"))
+COMPARISON_REQUEST_TIMEOUT = float(os.getenv("COMPARISON_REQUEST_TIMEOUT", "180"))
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 INGESTION_QUEUE_NAME = os.getenv("INGESTION_QUEUE_NAME", "paper-rag-ingestion")
 INGESTION_JOB_TIMEOUT = int(os.getenv("INGESTION_JOB_TIMEOUT", "7200"))

@@ -11,7 +11,7 @@ import database
 from milvus_store import collection_exists
 
 
-st.set_page_config(page_title="论文检索 RAG 助手", page_icon="📄", layout="wide")
+st.set_page_config(page_title="IoT 设备识别方案调研助手", page_icon="📄", layout="wide")
 
 if not config.OPENAI_API_KEY:
     st.error("未检测到 OPENAI_API_KEY，请在 .env 文件中配置后重启应用。")
@@ -26,6 +26,7 @@ INGESTION_STAGE_LABELS = {
     "parsing": "正在解析 PDF",
     "embedding_text": "正在生成文本向量",
     "writing_text": "正在写入文本索引",
+    "building_graph": "正在抽取图关系",
     "embedding_images": "正在生成图片向量",
     "completed": "索引构建完成",
 }
@@ -35,6 +36,7 @@ INGESTION_STAGE_PROGRESS = {
     "parsing": 20,
     "embedding_text": 40,
     "writing_text": 65,
+    "building_graph": 72,
     "embedding_images": 80,
     "completed": 100,
 }
@@ -58,11 +60,11 @@ def render_citations(message_id: str) -> None:
                 score = citation.get("score")
                 score_text = f" · 相关度: {score:.3f}" if score is not None else ""
                 st.markdown(
-                    f"**片段 {index}** · 来源: `{citation['source']}` "
+                    f"**片段 {index}（E{index}）** · 来源: `{citation['source']}` "
                     f"· 第 {citation['page']} 页{score_text}"
                 )
                 text = citation["chunk_text"]
-                st.text(text[:800] + ("..." if len(text) > 800 else ""))
+                st.text(text)
 
     image_citations = database.get_image_citations(message_id)
     if image_citations:
@@ -133,16 +135,23 @@ def render_last_ingestion_job(job: dict) -> None:
     result = job.get("result") or {}
     if status == "finished":
         image_error = result.get("image_error")
+        graph_error = result.get("graph_error")
+        graph = result.get("graph")
         if image_error:
             st.warning(
                 f"文本索引已完成（{result.get('text_chunks', 0)} 个文本块），"
                 f"但图片索引失败：{image_error}"
             )
         else:
+            graph_summary = (
+                f"，图关系 {graph['edges']} 条" if graph else ""
+            )
             st.success(
                 f"索引构建完成：{result.get('text_chunks', 0)} 个文本块，"
-                f"{result.get('images', 0)} 张图片"
+                f"{result.get('images', 0)} 张图片{graph_summary}"
             )
+        if graph_error:
+            st.warning(f"图索引未启用：{graph_error}")
     elif status == "failed":
         st.error(f"索引构建失败：{job.get('error') or '未知错误'}")
     elif status == "expired":
@@ -151,9 +160,44 @@ def render_last_ingestion_job(job: dict) -> None:
         st.warning(f"索引任务已结束：{status}")
 
 
+def render_comparison_form(conversation_id: str, pdfs: list[str]) -> None:
+    st.subheader("方案对比")
+    st.write("选择论文并描述部署需求，查看数据、方法、部署条件、实验和局限的对比。")
+    if len(pdfs) < 2:
+        st.info("请先在侧栏上传至少两篇论文并构建知识库索引。")
+    with st.form("comparison_form"):
+        sources = st.multiselect(
+            "待比较论文（2–3 篇，需已构建索引）", options=pdfs,
+            default=pdfs[:2], max_selections=3,
+        )
+        requirements = st.text_area(
+            "部署需求",
+            value="希望识别接入网络的 IoT 设备，部署在交换机上，关注高吞吐、处理延迟与硬件资源限制。",
+            max_chars=4000, height=110,
+        )
+        st.caption("对比表中的事实附有原文引用；适配分析单独标明为推断，缺少证据时显示资料不足。")
+        submitted = st.form_submit_button(
+            "生成方案对比", type="primary",
+            disabled=len(pdfs) < 2 or bool(st.session_state.get("ingestion_job_id")),
+        )
+    if submitted:
+        if len(sources) < 2 or not requirements.strip():
+            st.error("请选择至少两篇论文并填写部署需求。")
+            return
+        try:
+            with st.spinner("正在检索所选论文并整理带引用的方案对比…"):
+                api_client.create_comparison(conversation_id, sources, requirements)
+            st.rerun()
+        except api_client.PaperRAGAPIError as error:
+            st.error(str(error))
+
+
 active_conversation_id = ensure_active_conversation()
 
 with st.sidebar:
+    st.header("📄 研发调研工作台")
+    workspace_mode = st.radio("工作模式", ["方案对比", "论文问答"])
+    st.divider()
     st.header("💬 对话记录")
     if st.button("＋ 新建会话", use_container_width=True, type="primary"):
         st.session_state.active_conversation_id = chat_service.create_conversation()
@@ -233,32 +277,49 @@ with st.sidebar:
             st.session_state.pop("ingestion_last_job", None)
             st.rerun()
 
-    config.USE_HYBRID_SEARCH = st.toggle(
-        "启用向量 + BM25 混合检索",
-        value=config.USE_HYBRID_SEARCH,
-    )
-    config.ENABLE_RERANK = st.toggle(
-        "启用 Rerank 精排",
-        value=config.ENABLE_RERANK,
-        help="对粗筛候选进行二次排序，可提高相关性，但会增加少量调用费用。",
-    )
+    if workspace_mode == "论文问答":
+        config.USE_HYBRID_SEARCH = st.toggle(
+            "启用向量 + BM25 混合检索",
+            value=config.USE_HYBRID_SEARCH,
+        )
+        config.ENABLE_RERANK = st.toggle(
+            "启用 Rerank 精排",
+            value=config.ENABLE_RERANK,
+            help="对粗筛候选进行二次排序，可提高相关性，但会增加少量调用费用。",
+        )
 
 
 conversation = database.get_conversation(active_conversation_id)
-st.title("📄 论文检索 RAG 助手")
-st.caption(f"当前会话：{conversation['title']} · 回答仅依据知识库中的论文片段")
+st.title("📄 IoT 设备识别方案调研助手")
+st.caption(f"当前会话：{conversation['title']} · 论文事实可追溯，适配分析供研发人员核对")
+
+if workspace_mode == "方案对比":
+    render_comparison_form(active_conversation_id, existing_pdfs)
+    st.divider()
 
 messages = database.get_messages(active_conversation_id)
 if not messages:
-    st.info("上传并构建论文索引后，在下方输入问题开始对话。")
+    if workspace_mode == "论文问答":
+        st.info("上传并构建论文索引后，在下方输入问题开始对话。")
+else:
+    st.caption("当前会话记录 · 可切换到论文问答继续追问")
+
+if st.button("刷新会话记录", key="refresh_conversation"):
+    st.rerun()
 
 for message in messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
         if message["role"] == "assistant":
             render_citations(message["id"])
+            if message["content"].startswith("# 方案对比报告"):
+                st.download_button(
+                    "下载对比报告（Markdown）", data=message["content"],
+                    file_name=f"comparison_{message['id']}.md", mime="text/markdown",
+                    key=f"download_{message['id']}",
+                )
 
-question = st.chat_input("询问论文内容……")
+question = st.chat_input("询问论文内容或追问方案对比……") if workspace_mode == "论文问答" else None
 if question:
     try:
         if not collection_exists(config.COLLECTION_NAME):

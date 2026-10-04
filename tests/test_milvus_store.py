@@ -35,3 +35,26 @@ def test_missing_lite_file_has_no_collection(tmp_path, monkeypatch):
 
     assert exists is False
     client_class.assert_not_called()
+
+
+def test_active_collection_name_uses_physical_name_for_legacy_index():
+    client = type("FakeClient", (), {
+        "list_collections": lambda self: ["paper_chunks"],
+    })()
+
+    assert milvus_store.active_collection_name(client, "paper_chunks") == "paper_chunks"
+
+
+def test_active_collection_name_resolves_alias_target():
+    class FakeClient:
+        def list_collections(self):
+            return ["paper_chunks_version_123"]
+
+        def has_collection(self, name):
+            return name == "paper_chunks"
+
+        def describe_alias(self, alias):
+            assert alias == "paper_chunks"
+            return {"alias": alias, "collection_name": "paper_chunks_version_123"}
+
+    assert milvus_store.active_collection_name(FakeClient(), "paper_chunks") == "paper_chunks_version_123"

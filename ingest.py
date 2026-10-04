@@ -19,7 +19,6 @@ ingest.py
 import os
 import glob
 import re
-import uuid
 
 import pymupdf4llm
 import tiktoken
@@ -27,6 +26,9 @@ from openai import OpenAI
 from pymilvus import MilvusClient, DataType
 
 import config
+import database
+from chunk_identity import file_sha256, stable_chunk_id
+from graph_builder import build_graph_index
 from milvus_store import configured_target, create_milvus_client, staged_collection
 
 encoder = tiktoken.get_encoding("cl100k_base")
@@ -156,16 +158,16 @@ def build_chunks_from_pdfs(pdf_dir: str):
 
     for pdf_path in pdf_files:
         source = os.path.basename(pdf_path)
+        document_sha256 = file_sha256(pdf_path)
         print(f"正在处理: {source}")
         pages = extract_pages_markdown(pdf_path)
         for page_no, text in pages:
-            for chunk in chunk_markdown(
-                text,
-                config.CHUNK_SIZE,
-                config.CHUNK_OVERLAP,
-            ):
+            page_chunks = chunk_markdown(text, config.CHUNK_SIZE, config.CHUNK_OVERLAP)
+            for chunk_index, chunk in enumerate(page_chunks):
                 records.append({
-                    "id": str(uuid.uuid4()),
+                    "id": stable_chunk_id(
+                        source, document_sha256, page_no, chunk_index, chunk
+                    ),
                     "text": chunk,
                     "source": source,
                     "page": page_no,
@@ -240,6 +242,12 @@ def main():
     try:
         with staged_collection(mc, config.COLLECTION_NAME, build_collection, len(records)) as staging:
             mc.insert(collection_name=staging, data=records)
+        if config.ENABLE_GRAPH_BUILD:
+            try:
+                graph = build_graph_index(records, staging, database.DATABASE_URL)
+                print(f"图索引已就绪：{graph['nodes']} 个节点，{graph['edges']} 条关系")
+            except Exception as error:
+                print(f"[警告] 图索引构建失败，文本索引仍可用: {error}")
     finally:
         mc.close()
     print(f"完成！共写入 {len(records)} 条数据到 {configured_target()}")

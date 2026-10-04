@@ -23,6 +23,19 @@ def collection_aliases(client: MilvusClient, name: str) -> list[str]:
     return response.get("aliases", []) if isinstance(response, dict) else response
 
 
+def active_collection_name(client: MilvusClient, public_name: str) -> str:
+    """Resolve a public text name to the physical index version it serves."""
+    if public_name in client.list_collections():
+        return public_name  # Pre-alias legacy collection.
+    if not client.has_collection(public_name):
+        raise LookupError(f"Collection does not exist: {public_name}")
+    alias = client.describe_alias(alias=public_name)
+    collection_name = alias.get("collection_name")
+    if not collection_name:
+        raise RuntimeError(f"Alias has no collection target: {public_name}")
+    return collection_name
+
+
 def _publish_collection(client: MilvusClient, name: str, staging: str) -> None:
     """Publish a ready collection, retaining the previous physical version."""
     if name in client.list_collections():

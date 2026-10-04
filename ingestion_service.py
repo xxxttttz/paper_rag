@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import config
+import database
+from graph_builder import build_graph_index
 from image_ingest import rebuild_image_index
 from ingest import build_chunks_from_pdfs, build_collection, embed_texts
 from milvus_store import create_milvus_client, staged_collection
@@ -38,6 +40,15 @@ def rebuild_knowledge_base(
         ) as staging:
             milvus.insert(collection_name=staging, data=records)
 
+        graph_result = None
+        graph_error = None
+        if config.ENABLE_GRAPH_BUILD:
+            notify("building_graph", {"text_chunks": len(records)})
+            try:
+                graph_result = build_graph_index(records, staging, database.DATABASE_URL)
+            except Exception as error:
+                graph_error = str(error)
+
         notify("embedding_images", {"text_chunks": len(records)})
         try:
             image_records = rebuild_image_index(milvus)
@@ -53,5 +64,7 @@ def rebuild_knowledge_base(
         "images": len(image_records),
         "image_error": image_error,
     }
+    if config.ENABLE_GRAPH_BUILD:
+        result.update({"graph": graph_result, "graph_error": graph_error})
     notify("completed", result)
     return result

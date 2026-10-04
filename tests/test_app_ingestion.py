@@ -70,3 +70,19 @@ def test_finished_job_still_shows_result_and_restores_button(app_test):
     assert not app_test.exception
     assert not rebuild_button(app_test).disabled
     assert any("2 个文本块" in notice.value for notice in app_test.success)
+
+
+def test_finished_job_reports_graph_build_failure(app_test):
+    job = {
+        "job_id": "test-job",
+        "status": "finished",
+        "result": {
+            "text_chunks": 2, "images": 1, "image_error": None,
+            "graph": None, "graph_error": "model failed",
+        },
+    }
+    with patch("api_client.get_ingestion_job", return_value=job):
+        app_test.run(timeout=10)
+
+    assert not app_test.exception
+    assert any("图索引未启用" in notice.value for notice in app_test.warning)

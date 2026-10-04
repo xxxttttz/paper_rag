@@ -217,6 +217,27 @@ def test_text_can_finish_while_failed_image_rebuild_retains_old_images(monkeypat
     assert client.closed
 
 
+def test_optional_graph_build_uses_published_physical_text_version(monkeypatch):
+    client = FakeMilvus()
+    records = [{"id": "chunk-1", "text": "new", "source": "paper.pdf", "page": 1}]
+    monkeypatch.setattr(config, "ENABLE_GRAPH_BUILD", True)
+    monkeypatch.setattr(ingestion_service.database, "DATABASE_URL", "postgres://test")
+    monkeypatch.setattr(ingestion_service, "build_chunks_from_pdfs", lambda _: records)
+    monkeypatch.setattr(ingestion_service, "embed_texts", lambda _: [[0.0]])
+    monkeypatch.setattr(ingestion_service, "create_milvus_client", lambda: client)
+    monkeypatch.setattr(ingestion_service, "build_collection", build_collection)
+    monkeypatch.setattr(ingestion_service, "rebuild_image_index", lambda _: [])
+    graph_build = Mock(return_value={"build_id": "graph-1", "nodes": 2, "edges": 1})
+    monkeypatch.setattr(ingestion_service, "build_graph_index", graph_build)
+
+    result = ingestion_service.rebuild_knowledge_base()
+
+    physical = client.aliases[config.COLLECTION_NAME]
+    assert graph_build.call_args.args == (records, physical, "postgres://test")
+    assert result["graph"]["edges"] == 1
+    assert result["graph_error"] is None
+
+
 def test_incomplete_migration_preserves_target_index():
     source = Mock()
     source.get_collection_stats.return_value = {"row_count": 3}

@@ -46,3 +46,17 @@ def test_api_connection_error_has_actionable_message():
     ):
         with pytest.raises(api_client.PaperRAGAPIError, match="FastAPI"):
             api_client.get_ingestion_job("job-123")
+
+
+def test_comparison_sends_json_and_uses_generation_timeout():
+    with patch("api_client.httpx.request", return_value=_response(200, {"answer": "report"})) as request:
+        result = api_client.create_comparison("conversation", ["A.pdf", "B.pdf"], "部署需求")
+    assert result["answer"] == "report"
+    assert request.call_args.kwargs["json"]["sources"] == ["A.pdf", "B.pdf"]
+    assert request.call_args.kwargs["timeout"] == api_client.config.COMPARISON_REQUEST_TIMEOUT
+
+
+def test_comparison_read_timeout_does_not_encourage_duplicate_submission():
+    with patch("api_client.httpx.request", side_effect=httpx.ReadTimeout("timeout")):
+        with pytest.raises(api_client.PaperRAGAPIError, match="刷新会话记录"):
+            api_client.create_comparison("conversation", ["A.pdf", "B.pdf"], "需求")

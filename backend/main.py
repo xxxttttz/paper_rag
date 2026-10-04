@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 import database
 from backend.routers.chat import router as chat_router
+from backend.routers.comparisons import router as comparisons_router
 from backend.routers.conversations import router as conversations_router
 from backend.routers.ingestion import router as ingestion_router
 
@@ -37,6 +38,7 @@ app = FastAPI(
 
 app.include_router(conversations_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
+app.include_router(comparisons_router, prefix="/api/v1")
 app.include_router(ingestion_router, prefix="/api/v1")
 
 

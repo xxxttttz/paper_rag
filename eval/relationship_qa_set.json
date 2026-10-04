@@ -1,0 +1,66 @@
+[
+  {
+    "question": "DeviceRadar 和 ProfilIoT 分别用什么粒度的流量数据和哪些特征来识别 IoT 设备？",
+    "expected_evidence": [
+      {"source": "DeviceRadar.pdf", "page": 3},
+      {"source": "ProfilIoT.pdf", "page": 2}
+    ],
+    "reference_answer": "DeviceRadar 面向包，主要依赖包大小和方向；ProfilIoT 把 TCP 包聚合为会话，使用网络层、传输层和应用层的会话特征。"
+  },
+  {
+    "question": "两篇论文各自用什么分类器识别设备？分类器是否对每个目标设备分别训练？",
+    "expected_evidence": [
+      {"source": "DeviceRadar.pdf", "page": 7},
+      {"source": "ProfilIoT.pdf", "page": 3}
+    ],
+    "reference_answer": "DeviceRadar 为每个目标设备训练 CART 决策树；ProfilIoT 为不同目标设备训练单会话二分类器，表 2 包含 GBM、随机森林和 XGBoost。"
+  },
+  {
+    "question": "DeviceRadar 和 ProfilIoT 的实验分别覆盖多少种 IoT 设备，数据来自哪里？",
+    "expected_evidence": [
+      {"source": "DeviceRadar.pdf", "page": 10},
+      {"source": "ProfilIoT.pdf", "page": 1}
+    ],
+    "reference_answer": "DeviceRadar 覆盖 77 种设备，使用自建数据集和来自美国、英国、澳大利亚的公开数据集；ProfilIoT 收集本地 9 种 IoT 设备以及 PC 和智能手机的流量。"
+  },
+  {
+    "question": "两篇论文分别报告哪些设备识别指标？能直接用报告的数字判断哪个方法更好吗？",
+    "expected_evidence": [
+      {"source": "DeviceRadar.pdf", "page": 11},
+      {"source": "ProfilIoT.pdf", "page": 3}
+    ],
+    "reference_answer": "DeviceRadar 主要报告 precision、recall 和 FPR；ProfilIoT 报告 99.281% 的整体分类准确率。任务设定、数据集和指标不同，不能直接按数字判定优劣。"
+  },
+  {
+    "question": "DeviceRadar 与 ProfilIoT 的目标网络场景有什么不同？",
+    "expected_evidence": [
+      {"source": "DeviceRadar.pdf", "page": 1},
+      {"source": "ProfilIoT.pdf", "page": 1}
+    ],
+    "reference_answer": "DeviceRadar 面向存在中间盒的 ISP 网络；ProfilIoT 面向组织网络中接入设备的识别。"
+  },
+  {
+    "question": "DeviceRadar 如何把识别方法部署到交换机数据平面，论文在 40 Gbps 下报告了多大的处理延迟？",
+    "expected_evidence": [
+      {"source": "DeviceRadar.pdf", "page": 8},
+      {"source": "DeviceRadar.pdf", "page": 13}
+    ],
+    "reference_answer": "它把方向判断、包邻近概率、特征更新和决策树推理转成 P4 match-action 流水线；40 Gbps 时平均处理延迟约 380 微秒。"
+  },
+  {
+    "question": "ProfilIoT 如何从单个 TCP 会话的分类结果得到设备级判断，测试集整体准确率是多少？",
+    "expected_evidence": [
+      {"source": "ProfilIoT.pdf", "page": 2},
+      {"source": "ProfilIoT.pdf", "page": 3}
+    ],
+    "reference_answer": "它对单会话分类，再对连续多个会话的结果进行多数投票；测试集整体准确率是 99.281%。"
+  },
+  {
+    "question": "DeviceRadar 的 packet embedding 与 key packet 最终怎样形成决策树可用的设备指纹？",
+    "expected_evidence": [
+      {"source": "DeviceRadar.pdf", "page": 6},
+      {"source": "DeviceRadar.pdf", "page": 7}
+    ],
+    "reference_answer": "packet embedding 学习带方向的包大小之间的邻近关系，转换为邻近概率；再针对关键包汇总邻近概率形成特征向量，交给 CART 决策树识别设备。"
+  }
+]
